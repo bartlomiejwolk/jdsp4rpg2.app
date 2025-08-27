@@ -73,7 +73,8 @@ from the release/assets page
   	```
 	GraphicEQ: 25 -3.00; 63 -1.50; 100 0.00; 347 -1.48; 450 -7.385; 500 -11.285; 600 -8.00; 1015 -21.60; 1500 -16.18; 2300 -9.95; 4000 -8.75; 6000 -13.25; 7000 -16.13; 8500 -21.94; 11000 -11.42; 12000 -3.59; 16000 -0.25;
 	```
-
+   * Pocket 5 + Flip 2 (optional): Since the speakers are very close, I think it is good to widening the stereo image.<br>
+   You can do that by scrolling down the effects list and enable "Live programmable DSP", then immeddiately down, tap "Liveprog script", tap "stereo", and tap "stereowide", tap "additional script parameters" and set "Stereo width" to 2.00
 * Tap the cog icon in the lower/left side of the screen
 * Select Audio processing, enable "Legacy mode".
 * If needed, turn on JamesDSP by tapping the "Power on" icon in the center/lower part of the screen.
