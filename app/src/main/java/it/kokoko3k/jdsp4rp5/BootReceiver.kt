@@ -33,19 +33,24 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
             Log.d(tag, "Received BOOT_COMPLETED or LOCKED_BOOT_COMPLETED intent")
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    Log.d(tag, "Permission POST_NOTIFICATIONS not granted")
-                    return
-                }
+            val canPostNotifications =
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ActivityCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+            if (!canPostNotifications) {
+                Log.d(tag, "POST_NOTIFICATIONS not granted, continuing without notification")
             }
 
             //Enable JDSP at boot?
             val sharedPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val isJdspEnabledAtBoot = sharedPrefs.getBoolean(JDSP_ENABLED_KEY, false)
             if (isJdspEnabledAtBoot) {
-                createNotificationChannel(context)
-                showNotification(context)
+                if (canPostNotifications) {
+                    createNotificationChannel(context)
+                    showNotification(context)
+                }
                 Log.d(tag, "Enabling JamesDSP at boot...")
                 JdspUtils.enableJdsp(context)
             } else {

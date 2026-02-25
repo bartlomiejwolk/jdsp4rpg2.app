@@ -137,7 +137,7 @@ object JdspUtils {
         // logpath is: /storage/emulated/0/app.name/files/lostlog.txt
         val logpath = getLogFile(context)
 
-        var cmd = "sh " + filespath + "/support/subscripts/jdsp.setup.sh" + " " + filespath + " > " + logpath
+        var cmd = "sh " + filespath + "/support/subscripts/jdsp.setup.sh" + " " + filespath + " > " + logpath + " 2>&1"
         Log.d(TAG, "enabling jdsp with cmd= " + cmd)
 
         //execute it:
@@ -157,7 +157,7 @@ object JdspUtils {
         // logpath is: /storage/emulated/0/app.name/files/lostlog.txt
         val logpath = getLogFile(context)
 
-        var cmd = "sh " + filespath + "/support/subscripts/jdsp.cleanup.sh" + " " + filespath + " > " + logpath
+        var cmd = "sh " + filespath + "/support/subscripts/jdsp.cleanup.sh" + " " + filespath + " > " + logpath + " 2>&1"
         Log.d(TAG, "enabling jdsp with cmd= " + cmd)
 
         //execute it:

@@ -4,12 +4,38 @@
 #the mountpoint to the tmpfs tree used to mount the new soundfx lib dir.
 	TMPFS="$SDIR/support/jdsp4rp5_tmpfs"
 
-#where soundfx libs resides
-	SOUNDFX_DIR=/vendor/lib/soundfx
+#G2 profile: fixed soundfx directory and config targets
+		SOUNDFX_DIR=/vendor/lib64/soundfx
+		AUDIO_POLICY_TARGETS="/vendor/etc/audio/sku_cliffs_qssi/audio_policy_configuration.xml"
+		AUDIO_EFFECTS_TARGETS="/vendor/etc/audio/sku_pineapple/audio_effects.xml /vendor/etc/audio_effects.xml /vendor/etc/audio/audio_effects.xml /vendor/etc/audio/sku_cliffs/audio_effects.xml"
+
+apply_bind_file() {
+	src="$1"
+	dst="$2"
+	[ -f "$dst" ] || return 0
+	mount -o bind "$src" "$dst"
+	if ! mount | grep -q " on $dst "; then
+		echo "apply_bind_file: bind failed src=$src dst=$dst"
+		return 1
+	fi
+	chown root:root "$dst"
+	chmod 0644 "$dst"
+	chcon u:object_r:vendor_configs_file:s0 "$dst"
+	if grep -q '<mixPort name="raw"' "$dst" 2>/dev/null; then
+		echo "apply_bind_file: WARNING raw still present in $dst"
+	else
+		echo "apply_bind_file: raw not present in $dst"
+	fi
+}
 
 ### Cleanup
 
-	umount /vendor/etc/audio/audio_policy_configuration.xml
+	if [ -n "$AUDIO_POLICY_TARGETS" ]; then
+		for tgt in $AUDIO_POLICY_TARGETS; do
+			[ -f "$tgt" ] || continue
+			umount "$tgt"
+		done
+	fi
 
     for m in $(mount |grep tmpfs | grep $(basename $TMPFS)| awk -F' on ' '{print $2}' | awk -F' type ' '{print $1}') ; do
       umount -l "$m"
@@ -19,7 +45,12 @@
       umount -l "$m"
     done
 	
-    umount /vendor/etc/audio_effects.xml
+	if [ -n "$AUDIO_EFFECTS_TARGETS" ]; then
+		for tgt in $AUDIO_EFFECTS_TARGETS; do
+			[ -f "$tgt" ] || continue
+			umount "$tgt"
+		done
+	fi
 
     umount /vendor/etc/acdbdata/MTP
     umount /vendor/etc/audio_policy_volumes.xml
@@ -29,21 +60,25 @@
 ### /end Cleanup
 
 
-#Override /vendor/etc/audio/audio_policy_configuration.xml
+#Override audio policy configuration
 #This is needed to force the low latency path and enable JamesDSP effect processing
 #on ull (ultra low latency?) clients too.
-	mount -o bind $SDIR/support/conf_files/audio_policy_configuration.xml /vendor/etc/audio/audio_policy_configuration.xml
-	chown root:root /vendor/etc/audio/audio_policy_configuration.xml
-	chmod 0644      /vendor/etc/audio/audio_policy_configuration.xml
-	chcon u:object_r:vendor_configs_file:s0 /vendor/etc/audio/audio_policy_configuration.xml	
+	if [ -n "$AUDIO_POLICY_TARGETS" ]; then
+		for tgt in $AUDIO_POLICY_TARGETS; do
+			[ -f "$tgt" ] || continue
+				apply_bind_file "$SDIR/support/conf_files/audio_policy_configuration.xml" "$tgt"
+			done
+		fi
 	
 	
-#Override audio_effects.xml
+#Override audio_effects.xml (all known targets)
 #This registers JamesDSP library in the Android Audio effect chain
-	mount -o bind $SDIR/support/conf_files/audio_effects-jdsp.xml /vendor/etc/audio_effects.xml
-	chown root:root /vendor/etc/audio_effects.xml
-	chmod 0644      /vendor/etc/audio_effects.xml
-	chcon u:object_r:vendor_configs_file:s0 /vendor/etc/audio_effects.xml 
+	if [ -n "$AUDIO_EFFECTS_TARGETS" ]; then
+		for tgt in $AUDIO_EFFECTS_TARGETS; do
+			[ -f "$tgt" ] || continue
+			apply_bind_file "$SDIR/support/conf_files/audio_effects-jdsp.xml" "$tgt"
+		done
+	fi
 
 #setup a tmpfs mountpoint
 	if [ ! -d "$TMPFS" ]; then
@@ -55,15 +90,15 @@
 #copy  new effect libs and original soundfx the over it.
 	VDIR="$SDIR/support/libs"
 	cp $VDIR/libjamesdsp.so $TMPFS/
-	cp -av /vendor/lib/soundfx/* $TMPFS/
+	cp -av "$SOUNDFX_DIR"/* $TMPFS/
 	
 #bind mount the cooked TMPFS over the system soundfx dir
-	mount -o bind $TMPFS /vendor/lib/soundfx
+	mount -o bind $TMPFS "$SOUNDFX_DIR"
 	
 #set permissions and SELinux context
-	chown root:root /vendor/lib/soundfx/*
-	chmod 0644      /vendor/lib/soundfx/*
-	chcon u:object_r:vendor_configs_file:s0 /vendor/lib/soundfx/*
+	chown root:root "$SOUNDFX_DIR"/*
+	chmod 0644      "$SOUNDFX_DIR"/*
+	chcon u:object_r:vendor_configs_file:s0 "$SOUNDFX_DIR"/*
 
 #override (or skip?) qcom acdbdata calibrations fixes missing bass
 #on right speaker on low-latenncy path.
@@ -92,11 +127,14 @@
 #Finally, restart audio system
 	killall -q audioserver
 	killall -q mediaserver
-	
-#restart(?) jamesdsp
-	#pm disable james.dsp
-	#pm enable james.dsp
 
-#It seems root is able to start hidden activities; do that to enable JamesDSP.
-am start james.dsp/me.timschneeberger.rootlessjamesdsp.activity.EngineLauncherActivity
+#Start rootless manager components (G2 release ships rootless manager APK only).
+if pm path james.dsp >/dev/null 2>&1; then
+	am start --user 0 -n james.dsp/me.timschneeberger.rootlessjamesdsp.activity.MainActivity
+	am start-foreground-service --user 0 -n james.dsp/me.timschneeberger.rootlessjamesdsp.service.RootAudioProcessorService
 
+	# Force-open a global effect control session so manager can bind to the system effect.
+	am broadcast --user 0 -a android.media.action.OPEN_AUDIO_EFFECT_CONTROL_SESSION \
+		--ei android.media.extra.AUDIO_SESSION 0 \
+		--es android.media.extra.PACKAGE_NAME james.dsp
+fi
