@@ -1,3 +1,8 @@
+# Fork Notice
+This repository is a fork of the original project https://github.com/kokoko3k/jdsp4rp5.app modified to support Retroid Pocket G2 (OS v1.0.0.164). For Retroid Pocket 5 support, please use the original (base) repository.
+
+---
+
 # ((•)) Jdsp4Rp5 (temp root) app 
 ### *JamesDSP in temporary root mode for Retroid Pocket 5 and Retroid Pocket Flip 2*
 
