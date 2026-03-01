@@ -23,15 +23,19 @@ fun getApplicationName(context: Context): String {
 class BootReceiver : BroadcastReceiver() {
 
     private val tag = "BootReceiver"
-
-    private val PREFS_NAME = "JdspPrefs"
-    private val JDSP_ENABLED_KEY = "jdspEnabled"
+    private val jdspBootFailureCountKey = "jdspBootFailureCount"
+    private val bootFailureThreshold = 3
 
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(tag, "BootReceiver.onReceive() called")
 
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
-            Log.d(tag, "Received BOOT_COMPLETED or LOCKED_BOOT_COMPLETED intent")
+        if (intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            Log.d(tag, "Received LOCKED_BOOT_COMPLETED: skipping JDSP setup until BOOT_COMPLETED")
+            return
+        }
+
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+            Log.d(tag, "Received BOOT_COMPLETED intent")
 
             val canPostNotifications =
                 Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -44,15 +48,48 @@ class BootReceiver : BroadcastReceiver() {
             }
 
             //Enable JDSP at boot?
-            val sharedPrefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val isJdspEnabledAtBoot = sharedPrefs.getBoolean(JDSP_ENABLED_KEY, false)
+            val sharedPrefs = context.getSharedPreferences(JdspUtils.PREFS_NAME, Context.MODE_PRIVATE)
+            val isJdspEnabledAtBoot = sharedPrefs.getBoolean(JdspUtils.JDSP_BOOT_ENABLED_KEY, false)
+            val mediaOnly = sharedPrefs.getBoolean(JdspUtils.JDSP_MEDIA_ONLY_KEY, false)
             if (isJdspEnabledAtBoot) {
                 if (canPostNotifications) {
                     createNotificationChannel(context)
-                    showNotification(context)
                 }
                 Log.d(tag, "Enabling JamesDSP at boot...")
-                JdspUtils.enableJdsp(context)
+                val result = JdspUtils.enableJdsp(context, mediaOnly)
+                if (!result.success) {
+                    val failures = sharedPrefs.getInt(jdspBootFailureCountKey, 0) + 1
+                    sharedPrefs.edit().putInt(jdspBootFailureCountKey, failures).apply()
+                    Log.e(
+                        tag,
+                        "Boot JDSP enable failed (#$failures): exitCode=${result.exitCode}, state=${result.runtimeState}, log=${result.logPath}, err=${result.errorSummary}"
+                    )
+                    if (canPostNotifications) {
+                        showFailureNotification(
+                            context,
+                            "JDSP boot enable failed ($failures/$bootFailureThreshold)."
+                        )
+                    }
+                    if (failures >= bootFailureThreshold) {
+                        sharedPrefs.edit()
+                            .putBoolean(JdspUtils.JDSP_BOOT_ENABLED_KEY, false)
+                            .putInt(jdspBootFailureCountKey, 0)
+                            .apply()
+                        Log.e(tag, "Auto-disabled boot autostart after repeated failures.")
+                        if (canPostNotifications) {
+                            showFailureNotification(
+                                context,
+                                "JDSP boot autostart disabled after repeated failures."
+                            )
+                        }
+                    }
+                } else {
+                    sharedPrefs.edit().putInt(jdspBootFailureCountKey, 0).apply()
+                    Log.d(tag, "Boot JDSP enable succeeded: state=${result.runtimeState}")
+                    if (canPostNotifications) {
+                        showNotification(context, "JDSP enabled at boot.")
+                    }
+                }
             } else {
                 Log.d(tag, "Not enabling JamesDSP at boot...")
             }
@@ -79,11 +116,11 @@ class BootReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun showNotification(context: Context) {
+    private fun showNotification(context: Context, text: String) {
         val builder = NotificationCompat.Builder(context, "boot_channel")
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getApplicationName(context))
-            .setContentText("App started.")
+            .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -94,6 +131,21 @@ class BootReceiver : BroadcastReceiver() {
             }
         } else {
             Log.d(tag, "Unable to show notification it seems permession POST_NOTIFICATIONS is missing")
+        }
+    }
+
+    private fun showFailureNotification(context: Context, text: String) {
+        val builder = NotificationCompat.Builder(context, "boot_channel")
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getApplicationName(context))
+            .setContentText(text)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+
+        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            with(NotificationManagerCompat.from(context)) {
+                val notificationId = 124
+                notify(notificationId, builder.build())
+            }
         }
     }
 }
